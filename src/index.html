@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dibujo Fourier - Paso 1</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            color: #fff;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+        
+        canvas {
+            display: block;
+            cursor: crosshair;
+            border: 1px solid #333;
+        }
+        
+        .ui-panel {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #444;
+            min-width: 200px;
+        }
+        
+        .title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #00ff88;
+        }
+        
+        .info-row {
+            margin: 8px 0;
+            font-size: 14px;
+        }
+        
+        .info-label {
+            color: #ccc;
+        }
+        
+        .info-value {
+            color: #fff;
+            font-weight: bold;
+        }
+        
+        .controls {
+            margin-top: 15px;
+        }
+        
+        button {
+            background: #444;
+            color: #fff;
+            border: 1px solid #666;
+            padding: 8px 15px;
+            margin: 5px 5px 5px 0;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        
+        button:hover {
+            background: #555;
+        }
+        
+        button:active {
+            background: #333;
+        }
+        
+        .instructions {
+            position: absolute;
+            bottom: 15px;
+            left: 15px;
+            color: #888;
+            font-size: 12px;
+            max-width: 300px;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 10px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="drawingCanvas"></canvas>
+    
+    <div class="ui-panel">
+        <div class="title">🎨 Dibujo Fourier</div>
+        
+        <div class="info-row">
+            <span class="info-label">Estado:</span>
+            <span class="info-value" id="status">Listo para dibujar</span>
+        </div>
+        
+        <div class="info-row">
+            <span class="info-label">Puntos:</span>
+            <span class="info-value" id="pointCount">0</span>
+        </div>
+        
+        <div class="info-row">
+            <span class="info-label">Trazas:</span>
+            <span class="info-value" id="pathCount">0</span>
+        </div>
+        
+        <div class="controls">
+            <button id="clearBtn">🗑️ Limpiar</button>
+            <button id="undoBtn">↶ Deshacer</button>
+        </div>
+    </div>
+    
+    <div class="instructions">
+        <strong>📋 Instrucciones:</strong><br>
+        • Mantén presionado el ratón/dedo para dibujar<br>
+        • Suelta para terminar una traza<br>
+        • Puedes hacer múltiples trazas<br>
+        • Usa los botones para limpiar o deshacer
+    </div>
+
+    <script>
+        class DrawingApp {
+            constructor() {
+                this.canvas = document.getElementById('drawingCanvas');
+                this.ctx = this.canvas.getContext('2d');
+                
+                // Estado del dibujo
+                this.isDrawing = false;
+                this.currentPath = [];
+                this.allPaths = [];
+                this.totalPoints = 0;
+                
+                this.setupCanvas();
+                this.setupEventListeners();
+                this.updateUI();
+                this.startRenderLoop();
+            }
+            
+            setupCanvas() {
+                // Ajustar tamaño del canvas a la ventana
+                this.resizeCanvas();
+                window.addEventListener('resize', () => this.resizeCanvas());
+            }
+            
+            resizeCanvas() {
+                this.canvas.width = window.innerWidth;
+                this.canvas.height = window.innerHeight;
+                this.redrawAll();
+            }
+            
+            setupEventListeners() {
+                // === EVENTOS DE RATÓN ===
+                this.canvas.addEventListener('mousedown', (e) => {
+                    this.startDrawing(this.getMousePos(e));
+                });
+                
+                this.canvas.addEventListener('mousemove', (e) => {
+                    if (this.isDrawing) {
+                        this.addPoint(this.getMousePos(e));
+                    }
+                });
+                
+                this.canvas.addEventListener('mouseup', () => {
+                    this.stopDrawing();
+                });
+                
+                // Evitar menú contextual
+                this.canvas.addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                });
+                
+                // === EVENTOS TÁCTILES ===
+                this.canvas.addEventListener('touchstart', (e) => {
+                    e.preventDefault(); // Evitar scroll
+                    this.startDrawing(this.getTouchPos(e));
+                });
+                
+                this.canvas.addEventListener('touchmove', (e) => {
+                    e.preventDefault();
+                    if (this.isDrawing) {
+                        this.addPoint(this.getTouchPos(e));
+                    }
+                });
+                
+                this.canvas.addEventListener('touchend', (e) => {
+                    e.preventDefault();
+                    this.stopDrawing();
+                });
+                
+                // === EVENTOS DE BOTONES ===
+                document.getElementById('clearBtn').addEventListener('click', () => {
+                    this.clearAll();
+                });
+                
+                document.getElementById('undoBtn').addEventListener('click', () => {
+                    this.undoLastPath();
+                });
+            }
+            
+            // Obtener posición del ratón relativa al canvas
+            getMousePos(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                return {
+                    x: e.clientX - rect.left,
+                    y: e.clientY - rect.top
+                };
+            }
+            
+            // Obtener posición táctil relativa al canvas
+            getTouchPos(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                const touch = e.touches[0];
+                return {
+                    x: touch.clientX - rect.left,
+                    y: touch.clientY - rect.top
+                };
+            }
+            
+            startDrawing(pos) {
+                this.isDrawing = true;
+                this.currentPath = [pos];
+                this.updateStatus('Dibujando...');
+            }
+            
+            addPoint(pos) {
+                // Evitar puntos duplicados muy cercanos
+                const lastPoint = this.currentPath[this.currentPath.length - 1];
+                const distance = Math.sqrt(
+                    Math.pow(pos.x - lastPoint.x, 2) + 
+                    Math.pow(pos.y - lastPoint.y, 2)
+                );
+                
+                if (distance > 2) { // Mínima distancia entre puntos
+                    this.currentPath.push(pos);
+                    this.updateUI();
+                }
+            }
+            
+            stopDrawing() {
+                if (this.isDrawing && this.currentPath.length > 1) {
+                    // Guardar la traza completada
+                    this.allPaths.push([...this.currentPath]);
+                    this.totalPoints += this.currentPath.length;
+                    this.updateStatus('Traza completada');
+                } else {
+                    this.updateStatus('Listo para dibujar');
+                }
+                
+                this.isDrawing = false;
+                this.currentPath = [];
+                this.updateUI();
+            }
+            
+            clearAll() {
+                this.allPaths = [];
+                this.currentPath = [];
+                this.totalPoints = 0;
+                this.isDrawing = false;
+                this.updateStatus('Canvas limpiado');
+                this.updateUI();
+            }
+            
+            undoLastPath() {
+                if (this.allPaths.length > 0) {
+                    const removedPath = this.allPaths.pop();
+                    this.totalPoints -= removedPath.length;
+                    this.updateStatus('Traza deshecha');
+                    this.updateUI();
+                }
+            }
+            
+            updateStatus(message) {
+                document.getElementById('status').textContent = message;
+            }
+            
+            updateUI() {
+                // Calcular puntos totales (incluye traza actual)
+                const currentPoints = this.isDrawing ? this.currentPath.length : 0;
+                document.getElementById('pointCount').textContent = this.totalPoints + currentPoints;
+                document.getElementById('pathCount').textContent = this.allPaths.length + (this.isDrawing ? 1 : 0);
+            }
+            
+            // Bucle de renderizado
+            startRenderLoop() {
+                const render = () => {
+                    this.redrawAll();
+                    requestAnimationFrame(render);
+                };
+                render();
+            }
+            
+            redrawAll() {
+                // Limpiar canvas
+                this.ctx.fillStyle = '#000';
+                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+                
+                // Dibujar todas las trazas completadas
+                this.ctx.strokeStyle = '#00ff88';
+                this.ctx.lineWidth = 2;
+                this.ctx.lineCap = 'round';
+                this.ctx.lineJoin = 'round';
+                
+                for (const path of this.allPaths) {
+                    this.drawPath(path);
+                }
+                
+                // Dibujar traza actual (si se está dibujando)
+                if (this.isDrawing && this.currentPath.length > 1) {
+                    this.ctx.strokeStyle = '#ffff00'; // Amarillo para traza actual
+                    this.drawPath(this.currentPath);
+                }
+                
+                // Dibujar puntos de la traza actual
+                if (this.isDrawing) {
+                    this.ctx.fillStyle = '#ff4444';
+                    for (const point of this.currentPath) {
+                        this.ctx.beginPath();
+                        this.ctx.arc(point.x, point.y, 3, 0, Math.PI * 2);
+                        this.ctx.fill();
+                    }
+                }
+            }
+            
+            drawPath(path) {
+                if (path.length < 2) return;
+                
+                this.ctx.beginPath();
+                this.ctx.moveTo(path[0].x, path[0].y);
+                
+                for (let i = 1; i < path.length; i++) {
+                    this.ctx.lineTo(path[i].x, path[i].y);
+                }
+                
+                this.ctx.stroke();
+            }
+        }
+        
+        // Inicializar la aplicación cuando se carga la página
+        window.addEventListener('load', () => {
+            new DrawingApp();
+        });
+    </script>
+</body>
+</html>
